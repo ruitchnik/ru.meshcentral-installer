@@ -26,7 +26,7 @@ sudo npm install -g npm
 echo -e "${GREEN}Установка MeshCentral...${NC}"
 sudo mkdir -p /opt/meshcentral/meshcentral-data
 sudo chown "$USER":"$USER" -R /opt/meshcentral
-cd /opt/meshcentral
+cd /opt/meshcentral || exit
 npm install --save --save-exact meshcentral
 sudo chown "$USER":"$USER" -R /opt/meshcentral
 
@@ -54,7 +54,7 @@ After=network.target
 [Service]
 Type=simple
 LimitNOFILE=1000000
-ExecStart=/usr/bin/node node_modules/meshcentral
+ExecStart=/usr/bin/node /opt/meshcentral/node_modules/meshcentral
 Environment=NODE_ENV=production
 WorkingDirectory=/opt/meshcentral
 User=${USER}
@@ -138,16 +138,18 @@ select choice in "Да" "Нет"; do
       mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
       sudo systemctl start meshcentral
+      echo -e "${GREEN}Ждем 10 секунд для запуска MeshCentral...${NC}"
       sleep 10
 
       echo -e "${GREEN}Создание администратора...${NC}"
-      node node_modules/meshcentral --createaccount "$username" --pass "$password" --email "$email"
-      node node_modules/meshcentral --adminaccount "$username"
+      cd /opt/meshcentral || exit
+      node ./node_modules/meshcentral --createaccount "$username" --pass "$password" --email "$email"
+      node ./node_modules/meshcentral --adminaccount "$username"
 
       echo -e "${GREEN}Создание группы устройств...${NC}"
-      node node_modules/meshcentral/meshctrl.js --url "wss://$dnsname:443" --loginuser "$username" --loginpass "$password" AddDeviceGroup --name "$company"
-      node node_modules/meshcentral/meshctrl.js --url "wss://$dnsname:443" --loginuser "$username" --loginpass "$password" EditDeviceGroup --group "$company" --desc "$company Support Group" --consent 71
-      node node_modules/meshcentral/meshctrl.js --url "wss://$dnsname:443" --loginuser "$username" --loginpass "$password" EditUser --userid "$username" --realname "$company Support"
+      node ./node_modules/meshcentral/meshctrl.js --url "wss://$dnsname:443" --loginuser "$username" --loginpass "$password" AddDeviceGroup --name "$company"
+      node ./node_modules/meshcentral/meshctrl.js --url "wss://$dnsname:443" --loginuser "$username" --loginpass "$password" EditDeviceGroup --group "$company" --desc "$company Support Group" --consent 71
+      node ./node_modules/meshcentral/meshctrl.js --url "wss://$dnsname:443" --loginuser "$username" --loginpass "$password" EditUser --userid "$username" --realname "$company Support"
 
       echo -e "${GREEN}Установка завершена!${NC}"
       echo "Вы можете зайти на https://$dnsname"
