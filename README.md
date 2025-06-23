@@ -9,5 +9,7 @@
 Для установки скопируй:
 
 wget https://raw.githubusercontent.com/ruitchnik/ru.meshcentral-installer/main/install.sh
+
 chmod +x install.sh
+
 ./install.sh
