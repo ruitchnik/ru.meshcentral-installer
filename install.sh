@@ -5,7 +5,15 @@ set -e
 
 # Цветовые константы
 GREEN='\033[1;32m'
+RED='\033[1;31m'
 NC='\033[0m'
+
+# Проверка архитектуры
+ARCH=$(uname -m)
+if [[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" ]]; then
+  echo -e "${RED}❌ Неподдерживаемая архитектура: $ARCH${NC}"
+  exit 1
+fi
 
 echo -e "${GREEN}▶ Проверка и установка зависимостей...${NC}"
 if ! command -v lsb_release &> /dev/null; then
@@ -13,7 +21,17 @@ if ! command -v lsb_release &> /dev/null; then
   sudo apt-get install -y lsb-core
 fi
 
-sudo apt-get install -y curl sudo jq
+DISTRO=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+CODENAME=$(lsb_release -cs)
+
+# Проверка версии ОС для Ubuntu
+if [[ "$DISTRO" == "ubuntu" && "$(lsb_release -rs | cut -d'.' -f1)" -lt 20 ]]; then
+  echo -e "${RED}❌ Требуется Ubuntu 20.04 или новее${NC}"
+  exit 1
+fi
+
+sudo apt-get update
+sudo apt-get install -y curl sudo jq gnupg
 
 echo -e "${GREEN}▶ Установка Node.js 18...${NC}"
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
@@ -24,27 +42,16 @@ echo -e "${GREEN}▶ Установка MeshCentral...${NC}"
 sudo mkdir -p /opt/meshcentral/meshcentral-data
 sudo chown "$USER":"$USER" -R /opt/meshcentral
 cd /opt/meshcentral
-npm install --save --save-exact meshcentral
+npm init -y
 
-# Создание минимального package.json с фиксированными версиями зависимостей
-cat <<EOF > package.json
-{
-  "dependencies": {
-    "meshcentral": "1.1.9",
-    "acme-client": "4.2.5",
-    "archiver": "5.3.1",
-    "otplib": "10.2.3",
-    "pg": "8.7.1",
-    "pgtools": "0.3.2"
-  }
-}
-EOF
+# Установка фиксированных версий пакетов
+npm install --save --save-exact meshcentral@1.1.9 acme-client@4.2.5 archiver@5.3.1 otplib@10.2.3 pg@8.7.1 pgtools@0.3.2
 
 echo -e "${GREEN}▶ Создание службы systemd...${NC}"
 cat <<EOF | sudo tee /etc/systemd/system/meshcentral.service > /dev/null
 [Unit]
 Description=MeshCentral Server
-After=network.target
+After=network.target mongod.service
 
 [Service]
 Type=simple
@@ -64,41 +71,34 @@ EOF
 sudo setcap 'cap_net_bind_service=+ep' "$(which node)"
 sudo systemctl daemon-reload
 sudo systemctl enable meshcentral
-sudo systemctl start meshcentral
 
-echo -e "${GREEN}▶ Ожидание запуска MeshCentral...${NC}"
-until systemctl is-active --quiet meshcentral; do
-  sleep 3
-done
-
-echo -e "${GREEN}▶ Установка MongoDB...${NC}"
-DISTRO=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
-CODENAME=$(lsb_release -cs)
-
-wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | sudo apt-key add -
-
-if [ "$DISTRO" == "ubuntu" ]; then
-  echo "deb http://repo.mongodb.org/apt/ubuntu $CODENAME/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
-elif [ "$DISTRO" == "debian" ]; then
-  echo "deb http://repo.mongodb.org/apt/debian $CODENAME/mongodb-org/5.0 main" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
-fi
-
+echo -e "${GREEN}▶ Установка MongoDB 7.0...${NC}"
+# Установка MongoDB 7.0
+wget -qO - https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb.gpg
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb.gpg ] https://repo.mongodb.org/apt/ubuntu ${CODENAME}/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
 sudo apt-get update
 sudo apt-get install -y mongodb-org
+
+# Настройка MongoDB
 sudo systemctl enable mongod
 sudo systemctl start mongod
 
-echo -e "${GREEN}▶ Проверка работы MongoDB...${NC}"
-until systemctl is-active --quiet mongod; do
-  sleep 3
+echo -e "${GREEN}▶ Ожидание запуска MongoDB...${NC}"
+for i in {1..30}; do
+  if mongosh --eval "db.runCommand({ping:1})" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+  if [ "$i" -eq 30 ]; then
+    echo -e "${RED}❌ Не удалось запустить MongoDB${NC}"
+    exit 1
+  fi
 done
 
 echo -e "${GREEN}▶ Настройка MeshCentral на использование MongoDB...${NC}"
-sudo systemctl stop meshcentral
 CONFIG_FILE="/opt/meshcentral/meshcentral-data/config.json"
 
-if [ ! -f "$CONFIG_FILE" ]; then
-  cat <<EOF > "$CONFIG_FILE"
+cat <<EOF > "$CONFIG_FILE"
 {
   "settings": {
     "MongoDb": "mongodb://127.0.0.1:27017/meshcentral",
@@ -112,13 +112,20 @@ if [ ! -f "$CONFIG_FILE" ]; then
   }
 }
 EOF
-else
-  jq '.settings.MongoDb = "mongodb://127.0.0.1:27017/meshcentral" |
-      .settings.MongoDbCol = "meshcentral"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
-  mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-fi
 
 sudo systemctl start meshcentral
+
+echo -e "${GREEN}▶ Ожидание запуска MeshCentral...${NC}"
+for i in {1..30}; do
+  if systemctl is-active --quiet meshcentral; then
+    break
+  fi
+  sleep 2
+  if [ "$i" -eq 30 ]; then
+    echo -e "${RED}❌ Не удалось запустить MeshCentral${NC}"
+    exit 1
+  fi
+done
 
 echo -e "${GREEN}▶ Хотите выполнить предварительную настройку?${NC}"
 select choice in "Да" "Нет"; do
@@ -164,6 +171,7 @@ select choice in "Да" "Нет"; do
       ;;
     "Нет")
       echo -e "${GREEN}✅ Установка завершена без предварительной настройки.${NC}"
+      echo "Для завершения настройки отредактируйте файл: $CONFIG_FILE"
       break
       ;;
     *)
