@@ -34,7 +34,7 @@ mesh_pkg="$(
   "dependencies": {
     "acme-client": "4.2.5",
     "archiver": "5.3.1",
-    "meshcentral": "1.1.9",
+    "meshcentral": "1.4.4",
     "otplib": "10.2.3",
     "pg": "8.7.1",
     "pgtools": "0.3.2"
