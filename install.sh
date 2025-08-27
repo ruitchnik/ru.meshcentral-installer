@@ -10,9 +10,7 @@ echo -e "${GREEN}=== Установка MeshCentral на Ubuntu ===${NC}"
 
 # Определение версии Ubuntu
 UBUNTU_CODENAME=$(lsb_release -cs)
-UBUNTU_VERSION=$(lsb_release -rs)
-
-echo -e "${YELLOW}Обнаружена Ubuntu $UBUNTU_VERSION ($UBUNTU_CODENAME)${NC}"
+echo -e "${YELLOW}Обнаружена Ubuntu: $UBUNTU_CODENAME${NC}"
 
 # Обновление системы и зависимости
 sudo apt update -y
@@ -32,24 +30,19 @@ fi
 NODE_VERSION=$(node -v)
 echo -e "${GREEN}Установлен Node.js $NODE_VERSION${NC}"
 
-# === MongoDB ===
-echo -e "${GREEN}Установка MongoDB...${NC}"
+# === MongoDB 5.0 ===
+echo -e "${GREEN}Установка MongoDB 5.0...${NC}"
 sudo install -d -m 0755 -o root -g root /etc/apt/keyrings
 
-# Для Ubuntu 24.04 используем MongoDB 6.0, для других - 7.0
-if [[ "$UBUNTU_CODENAME" == "noble" ]]; then
-    echo -e "${YELLOW}Установка MongoDB 6.0 для Ubuntu 24.04${NC}"
-    curl -fsSL https://pgp.mongodb.com/server-6.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
-    echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
-else
-    echo -e "${YELLOW}Установка MongoDB 7.0${NC}"
-    curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-7.0.gpg
-    echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-7.0.gpg] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-fi
+# Установка MongoDB 5.0 (поддерживается на noble)
+curl -fsSL https://pgp.mongodb.com/server-5.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-5.0.gpg
+echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-5.0.gpg] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
 
-sudo chmod 644 /etc/apt/keyrings/mongodb-server-*.gpg
+sudo chmod 644 /etc/apt/keyrings/mongodb-server-5.0.gpg
 sudo apt update -y
 sudo apt install -y mongodb-org
+
+# Запуск MongoDB
 sudo systemctl enable --now mongod
 
 # Проверка MongoDB с перезапуском при необходимости
@@ -64,7 +57,8 @@ else
         echo -e "${GREEN}MongoDB запущен после перезапуска!${NC}"
     else
         echo -e "${RED}Ошибка запуска MongoDB${NC}"
-        sudo journalctl -u mongod -n 10 --no-pager
+        echo -e "${YELLOW}Проверка статуса...${NC}"
+        sudo systemctl status mongod --no-pager
         exit 1
     fi
 fi
@@ -88,7 +82,8 @@ cat <<EOF | sudo tee /opt/meshcentral/meshcentral-data/config.json
     "MongoDbCol": "meshcentral",
     "port": 443,
     "aliasPort": 443,
-    "redirPort": 80
+    "redirPort": 80,
+    "TlsOffload": true
   }
 }
 EOF
@@ -130,7 +125,17 @@ if systemctl is-active --quiet meshcentral; then
 else
     echo -e "${RED}Ошибка запуска MeshCentral${NC}"
     sudo journalctl -u meshcentral -n 15 --no-pager
-    exit 1
+    echo -e "${YELLOW}Попытка перезапуска...${NC}"
+    sudo systemctl restart meshcentral
+    sleep 5
+    if systemctl is-active --quiet meshcentral; then
+        echo -e "${GREEN}MeshCentral запущен после перезапуска!${NC}"
+    else
+        exit 1
+    fi
 fi
 
 echo -e "${GREEN}Установка завершена!${NC}"
+echo -e "${YELLOW}Для первоначальной настройки откройте в браузере:${NC}"
+echo -e "${YELLOW}https://ваш-ip-адрес/${NC}"
+echo -e "${YELLOW}И создайте администратора.${NC}"
