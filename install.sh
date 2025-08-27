@@ -22,20 +22,17 @@ curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt install -y nodejs
 echo -e "${GREEN}Node.js $(node -v), npm $(npm -v) установлен${NC}"
 
-# === MongoDB 6.x ===
-echo -e "${GREEN}Установка MongoDB 6.x...${NC}"
-sudo install -d -m 0755 -o root -g root /etc/apt/keyrings
-curl -fsSL https://pgp.mongodb.com/server-6.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
-
-# Используем репозиторий jammy для Ubuntu 24.04
-UBUNTU_MONGO_CODENAME="jammy"
-echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg] https://repo.mongodb.org/apt/ubuntu $UBUNTU_MONGO_CODENAME/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
-sudo chmod 644 /etc/apt/keyrings/mongodb-server-6.0.gpg
+# === MongoDB 5.x ===
+echo -e "${GREEN}Установка MongoDB 5.x...${NC}"
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://pgp.mongodb.com/server-5.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-5.0.gpg
+echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-5.0.gpg] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
+sudo chmod 644 /etc/apt/keyrings/mongodb-server-5.0.gpg
 sudo apt update -y
 sudo apt install -y mongodb-org
-
-# Запуск MongoDB
 sudo systemctl enable --now mongod
+
+# Проверка MongoDB
 sleep 5
 if systemctl is-active --quiet mongod; then
     echo -e "${GREEN}MongoDB запущен!${NC}"
