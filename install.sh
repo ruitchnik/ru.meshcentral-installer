@@ -20,11 +20,13 @@ sudo apt install -y nodejs
 # === MongoDB 7.0 (репозиторий Jammy для Ubuntu 24.04) ===
 echo -e "${GREEN}Установка MongoDB 7.0...${NC}"
 sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
-  sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-7.0.gpg
+curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-7.0.gpg
+
+# Жёстко указываем jammy вместо noble
+UBUNTU_CODENAME="jammy"
 
 echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-7.0.gpg] \
-https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | \
+https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/7.0 multiverse" | \
   sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
 
 sudo apt update -y
