@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# ========================================
+# Установка MeshCentral на Ubuntu
+# ========================================
+
 # Цвета
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -8,67 +12,90 @@ NC='\033[0m'
 
 echo -e "${GREEN}=== Установка MeshCentral на Ubuntu ===${NC}"
 
-# Версия Ubuntu
+# Определяем версию Ubuntu
 UBUNTU_CODENAME=$(lsb_release -cs)
 echo -e "${YELLOW}Обнаружена Ubuntu $UBUNTU_CODENAME${NC}"
 
-# Обновление и зависимости
+# =========================
+# Обновление системы и зависимости
+# =========================
+echo -e "${GREEN}Обновление системы и установка зависимостей...${NC}"
 sudo apt update -y
-sudo apt install -y curl wget gnupg lsb-release build-essential jq sudo
+sudo apt upgrade -y
+sudo apt install -y curl wget gnupg lsb-release build-essential jq sudo software-properties-common apt-transport-https
 
-# === Node.js 18.x + npm 9.2.0 ===
-echo -e "${GREEN}Установка Node.js 18.x и npm 9.2.0...${NC}"
+# =========================
+# Node.js 18.x + npm
+# =========================
+echo -e "${GREEN}Установка Node.js 18.x и npm...${NC}"
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt install -y nodejs npm
+sudo apt install -y nodejs
 echo -e "${GREEN}Node.js $(node -v), npm $(npm -v) установлен${NC}"
 
-# === MongoDB 5.x ===
-echo -e "${GREEN}Установка MongoDB 5.x...${NC}"
+# =========================
+# MongoDB 6.x
+# =========================
+echo -e "${GREEN}Установка MongoDB 6.x...${NC}"
 sudo install -d -m 0755 -o root -g root /etc/apt/keyrings
-curl -fsSL https://pgp.mongodb.com/server-5.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-5.0.gpg
-echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-5.0.gpg] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
-sudo chmod 644 /etc/apt/keyrings/mongodb-server-5.0.gpg
+curl -fsSL https://pgp.mongodb.com/server-6.0.asc | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
+echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+sudo chmod 644 /etc/apt/keyrings/mongodb-server-6.0.gpg
 sudo apt update -y
 sudo apt install -y mongodb-org
 sudo systemctl enable --now mongod
 
-# Проверка MongoDB
+# Проверка запуска MongoDB
 sleep 5
 if systemctl is-active --quiet mongod; then
-    echo -e "${GREEN}MongoDB запущен!${NC}"
+    echo -e "${GREEN}MongoDB успешно запущен${NC}"
 else
     echo -e "${RED}Ошибка запуска MongoDB${NC}"
     sudo journalctl -u mongod -n 10 --no-pager
     exit 1
 fi
 
-# === MeshCentral ===
-echo -e "${GREEN}Установка MeshCentral...${NC}"
+# =========================
+# Создание пользователя и директорий MeshCentral
+# =========================
+echo -e "${GREEN}Создание пользователя и директорий для MeshCentral...${NC}"
 sudo mkdir -p /opt/meshcentral
 if ! id "meshcentral" &>/dev/null; then
-    sudo useradd -r -s /bin/false meshcentral
+    sudo useradd -r -s /usr/sbin/nologin meshcentral
 fi
-sudo chown meshcentral:meshcentral /opt/meshcentral
-cd /opt/meshcentral
-sudo -u meshcentral npm install meshcentral@latest
+sudo chown -R meshcentral:meshcentral /opt/meshcentral
 
-# === Config.json ===
+# =========================
+# Установка MeshCentral
+# =========================
+echo -e "${GREEN}Установка MeshCentral...${NC}"
+sudo -u meshcentral npm install meshcentral@latest --prefix /opt/meshcentral --unsafe-perm
 sudo -u meshcentral mkdir -p /opt/meshcentral/meshcentral-data
-CONFIG_CONTENT='{
+
+# =========================
+# Создание config.json
+# =========================
+echo -e "${GREEN}Создание конфигурационного файла MeshCentral...${NC}"
+CONFIG_FILE="/opt/meshcentral/meshcentral-data/config.json"
+sudo tee $CONFIG_FILE > /dev/null <<EOF
+{
   "settings": {
     "port": 443,
     "aliasPort": 443,
     "redirPort": 80,
     "TlsOffload": true,
     "MongoDb": "mongodb://127.0.0.1:27017/meshcentral",
-    "MongoDbCol": "meshcentral"
+    "MongoDbCol": "meshcentral",
+    "WANonly": true
   }
-}'
-echo "$CONFIG_CONTENT" | sudo tee /opt/meshcentral/meshcentral-data/config.json > /dev/null
+}
+EOF
+sudo chown -R meshcentral:meshcentral /opt/meshcentral/meshcentral-data
 
-# === Systemd service ===
-echo -e "${GREEN}Создание systemd сервиса...${NC}"
-cat <<EOF | sudo tee /etc/systemd/system/meshcentral.service
+# =========================
+# Настройка systemd сервиса
+# =========================
+echo -e "${GREEN}Создание systemd сервиса MeshCentral...${NC}"
+sudo tee /etc/systemd/system/meshcentral.service > /dev/null <<EOF
 [Unit]
 Description=MeshCentral Server
 After=network.target mongod.service
@@ -86,16 +113,19 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 
-# Разрешаем Node слушать порты <1024
+# Разрешаем Node.js слушать порты <1024
 sudo setcap 'cap_net_bind_service=+ep' $(readlink -f $(which node))
 
+# =========================
 # Запуск MeshCentral
+# =========================
+echo -e "${GREEN}Запуск MeshCentral...${NC}"
 sudo systemctl daemon-reload
 sudo systemctl enable --now meshcentral
 sleep 10
 
 if systemctl is-active --quiet meshcentral; then
-    echo -e "${GREEN}MeshCentral успешно установлен!${NC}"
+    echo -e "${GREEN}MeshCentral успешно установлен и запущен!${NC}"
     IP_ADDRESS=$(hostname -I | awk '{print $1}')
     echo -e "${YELLOW}Откройте в браузере: https://${IP_ADDRESS}/${NC}"
 else
@@ -103,3 +133,5 @@ else
     sudo journalctl -u meshcentral -n 15 --no-pager
     exit 1
 fi
+
+echo -e "${GREEN}=== Установка завершена ===${NC}"
